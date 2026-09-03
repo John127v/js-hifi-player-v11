@@ -54,9 +54,11 @@ fun FileBrowserScreen(
         ) {
             IconButton(
                 onClick = {
-                    AudioFileBrowser.parentOf(currentDirectory)?.let {
-                        currentDirectory = it
-                    }
+                    AudioFileBrowser
+                        .parentOf(currentDirectory)
+                        ?.let { parent ->
+                            currentDirectory = parent
+                        }
                 }
             ) {
                 Icon(
@@ -90,6 +92,7 @@ fun FileBrowserScreen(
         )
 
         if (entries.isEmpty()) {
+
             Column(
                 modifier = Modifier.fillMaxSize(),
                 horizontalAlignment = Alignment.CenterHorizontally,
@@ -100,7 +103,9 @@ fun FileBrowserScreen(
                     style = MaterialTheme.typography.bodyLarge
                 )
             }
+
         } else {
+
             LazyColumn(
                 modifier = Modifier.fillMaxSize()
             ) {
@@ -140,6 +145,7 @@ private fun FileBrowserItem(
             ),
         verticalAlignment = Alignment.CenterVertically
     ) {
+
         Icon(
             imageVector = if (audioFile.isDirectory) {
                 Icons.Default.Folder
