@@ -22,7 +22,11 @@ object AudioFileBrowser {
     )
 
     /**
-     * Retorna os arquivos e pastas existentes dentro do diretório.
+     * Retorna arquivos de áudio e pastas existentes
+     * dentro do diretório informado.
+     *
+     * Pastas aparecem primeiro.
+     * Depois aparecem os arquivos em ordem alfabética.
      */
     fun list(directory: File): List<AudioFile> {
         if (!directory.exists() || !directory.isDirectory) {
@@ -35,11 +39,8 @@ object AudioFileBrowser {
                     file.isDirectory || isAudioFile(file)
                 }
                 ?.sortedWith(
-                    compareBy<AudioFile> {
-                        !it.isDirectory
-                    }.thenBy {
-                        it.name.lowercase()
-                    }
+                    compareBy<File> { !it.isDirectory }
+                        .thenBy { it.name.lowercase() }
                 )
                 ?.map { file ->
                     AudioFile(file)
@@ -51,7 +52,8 @@ object AudioFileBrowser {
     }
 
     /**
-     * Verifica se o arquivo possui uma extensão de áudio conhecida.
+     * Verifica se o arquivo possui uma extensão
+     * de áudio conhecida.
      */
     fun isAudioFile(file: File): Boolean {
         if (!file.exists() || !file.isFile) {
