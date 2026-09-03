@@ -97,12 +97,12 @@ class AutoGainController {
     /**
      * Converte dB para fator linear.
      */
-    fun dbToLinear(db: Float): Float {
-        return kotlin.math.pow(
-            10.0,
-            db / 20.0
-        ).toFloat()
-    }
+fun dbToLinear(db: Float): Float {
+    return Math.pow(
+        10.0,
+        db.toDouble() / 20.0
+    ).toFloat()
+}
 
     /**
      * Suaviza a mudança de ganho.
