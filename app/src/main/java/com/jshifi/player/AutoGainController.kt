@@ -1,34 +1,25 @@
 package com.jshifi.player
 
-import kotlin.math.max
 import kotlin.math.min
+import kotlin.math.pow
 
 /**
  * Controlador de ganho automático.
  *
- * Importante:
- *
- * Este componente não altera EQ, graves, agudos ou estéreo.
- * Ele trabalha somente no ganho geral.
- *
- * O objetivo é compensar principalmente arquivos muito baixos.
+ * Responsável apenas pelo cálculo do ganho.
+ * Não modifica EQ, estéreo ou características tonais.
  */
 class AutoGainController(
     private val settings: AudioSettings = AudioSettings()
 ) {
 
     /**
-     * Calcula o ganho recomendado em dB.
+     * Calcula o ganho automático em dB.
      *
-     * @param measuredPeakDbFS pico medido da faixa em dBFS.
+     * @param measuredPeakDbFS pico medido em dBFS.
      *
-     * Exemplo:
-     *
-     * -6 dBFS  -> pouco ou nenhum ganho
-     * -15 dBFS -> algum ganho
-     * -30 dBFS -> ganho maior
-     *
-     * O resultado nunca ultrapassa maxAutoGainDb.
+     * Quanto mais baixa estiver a gravação,
+     * maior poderá ser a compensação.
      */
     fun calculateGain(measuredPeakDbFS: Float): Float {
 
@@ -38,25 +29,16 @@ class AutoGainController(
 
         val peak = measuredPeakDbFS.coerceIn(-60f, 0f)
 
-        /*
-         * Se a música já estiver muito próxima de 0 dBFS,
-         * não devemos aumentar.
-         */
-        val availableHeadroom =
+        // Espaço disponível antes de chegar ao limite digital.
+        val headroom =
             -peak - settings.safetyMarginDb
 
-        if (availableHeadroom <= 0f) {
+        if (headroom <= 0f) {
             return 0f
         }
 
-        /*
-         * Preferimos uma compensação moderada.
-         */
         val desiredGain =
-            min(
-                settings.targetGainDb,
-                availableHeadroom
-            )
+            min(settings.targetGainDb, headroom)
 
         return desiredGain.coerceIn(
             0f,
@@ -65,10 +47,9 @@ class AutoGainController(
     }
 
     /**
-     * Suaviza a transição de ganho entre músicas.
+     * Suaviza alterações de ganho.
      *
-     * Isso evita uma mudança brusca de volume quando o usuário
-     * troca de uma música baixa para uma música normal.
+     * Evita mudanças bruscas de volume entre músicas.
      */
     fun smoothGain(
         currentGainDb: Float,
@@ -83,12 +64,15 @@ class AutoGainController(
     }
 
     /**
-     * Converte dB para multiplicador linear.
+     * Converte decibéis para ganho linear.
+     *
+     * Exemplo:
+     *
+     * 0 dB  = 1.0
+     * 6 dB  ≈ 1.995
+     * 10 dB ≈ 3.162
      */
     fun dbToLinear(db: Float): Float {
-        return math.pow(
-            10.0,
-            db / 20.0
-        ).toFloat()
+        return 10.0.pow(db.toDouble()).toFloat()
     }
 }
