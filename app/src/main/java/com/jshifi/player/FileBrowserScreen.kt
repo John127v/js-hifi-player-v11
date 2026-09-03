@@ -10,10 +10,8 @@ import androidx.compose.foundation.layout.padding
 import androidx.compose.foundation.lazy.LazyColumn
 import androidx.compose.foundation.lazy.items
 import androidx.compose.material.icons.Icons
-import androidx.compose.material.icons.filled.AudioFile
-import androidx.compose.material.icons.filled.Folder
-import androidx.compose.material.icons.filled.KeyboardArrowLeft
-import androidx.compose.material.icons.filled.MusicNote
+import androidx.compose.material.icons.filled.ArrowBack
+import androidx.compose.material.icons.filled.KeyboardArrowRight
 import androidx.compose.material3.Icon
 import androidx.compose.material3.IconButton
 import androidx.compose.material3.MaterialTheme
@@ -63,10 +61,14 @@ File("/")
 val files = remember(currentDirectory) {
     currentDirectory
         .listFiles()
-        ?.filter { it.isDirectory || isAudioFile(it) }
+        ?.filter {
+            it.isDirectory || isAudioFile(it)
+        }
         ?.sortedWith(
             compareBy<File> { !it.isDirectory }
-                .thenBy { it.name.lowercase() }
+                .thenBy {
+                    it.name.lowercase()
+                }
         )
         ?: emptyList()
 }
@@ -75,16 +77,42 @@ Column(
     modifier = Modifier.fillMaxSize()
 ) {
 
-    BrowserHeader(
-        currentDirectory = currentDirectory,
-        onBack = {
-            currentDirectory.parentFile?.let {
-                currentDirectory = it
-            }
+    Row(
+        modifier = Modifier
+            .fillMaxWidth()
+            .padding(
+                horizontal = 8.dp,
+                vertical = 6.dp
+            ),
+        verticalAlignment = Alignment.CenterVertically
+    ) {
+
+        IconButton(
+            onClick = {
+                currentDirectory.parentFile?.let {
+                    currentDirectory = it
+                }
+            },
+            enabled = currentDirectory.parentFile != null
+        ) {
+            Icon(
+                imageVector = Icons.Default.ArrowBack,
+                contentDescription = "Voltar"
+            )
         }
-    )
+
+        Text(
+            text = currentDirectory.absolutePath,
+            modifier = Modifier
+                .weight(1f)
+                .padding(start = 8.dp),
+            style = MaterialTheme.typography.titleMedium,
+            maxLines = 1
+        )
+    }
 
     if (files.isEmpty()) {
+
         Column(
             modifier = Modifier
                 .fillMaxSize()
@@ -92,114 +120,70 @@ Column(
             horizontalAlignment = Alignment.CenterHorizontally,
             verticalArrangement = Arrangement.Center
         ) {
-            Icon(
-                imageVector = Icons.Default.MusicNote,
-                contentDescription = null
-            )
 
             Text(
-                text = "Nenhuma música ou pasta encontrada.",
-                modifier = Modifier.padding(top = 12.dp),
+                text = "Pasta vazia",
                 style = MaterialTheme.typography.bodyLarge
             )
         }
+
     } else {
+
         LazyColumn(
             modifier = Modifier.fillMaxSize()
         ) {
+
             items(
                 items = files,
-                key = { it.absolutePath }
+                key = {
+                    it.absolutePath
+                }
             ) { file ->
 
-                FileBrowserItem(
-                    file = file,
-                    onClick = {
-                        if (file.isDirectory) {
-                            currentDirectory = file
-                        } else {
-                            onAudioSelected(file)
+                Row(
+                    modifier = Modifier
+                        .fillMaxWidth()
+                        .clickable {
+
+                            if (file.isDirectory) {
+                                currentDirectory = file
+                            } else {
+                                onAudioSelected(file)
+                            }
                         }
+                        .padding(
+                            horizontal = 16.dp,
+                            vertical = 14.dp
+                        ),
+                    verticalAlignment = Alignment.CenterVertically
+                ) {
+
+                    Text(
+                        text = if (file.isDirectory) {
+                            "📁"
+                        } else {
+                            "🎵"
+                        },
+                        modifier = Modifier.padding(end = 14.dp)
+                    )
+
+                    Text(
+                        text = file.name,
+                        modifier = Modifier.weight(1f),
+                        style = MaterialTheme.typography.bodyLarge
+                    )
+
+                    if (file.isDirectory) {
+                        Icon(
+                            imageVector =
+                                Icons.Default.KeyboardArrowRight,
+                            contentDescription = "Abrir pasta"
+                        )
                     }
-                )
+                }
             }
         }
     }
-}
-
-
-}
-
-@Composable
-private fun BrowserHeader(
-currentDirectory: File,
-onBack: () -> Unit
-) {
-Row(
-modifier = Modifier
-.fillMaxWidth()
-.padding(horizontal = 8.dp, vertical = 6.dp),
-verticalAlignment = Alignment.CenterVertically
-) {
-
-    IconButton(
-        onClick = onBack,
-        enabled = currentDirectory.parentFile != null
-    ) {
-        Icon(
-            imageVector = Icons.Default.KeyboardArrowLeft,
-            contentDescription = "Voltar"
-        )
-    }
-
-    Text(
-        text = currentDirectory.name.ifEmpty {
-            currentDirectory.absolutePath
-        },
-        modifier = Modifier.padding(start = 4.dp),
-        style = MaterialTheme.typography.titleMedium
-    )
-}
-
-
-}
-
-@Composable
-private fun FileBrowserItem(
-file: File,
-onClick: () -> Unit
-) {
-Row(
-modifier = Modifier
-.fillMaxWidth()
-.clickable(onClick = onClick)
-.padding(
-horizontal = 16.dp,
-vertical = 14.dp
-),
-verticalAlignment = Alignment.CenterVertically
-) {
-
-    Icon(
-        imageVector = if (file.isDirectory) {
-            Icons.Default.Folder
-        } else {
-            Icons.Default.AudioFile
-        },
-        contentDescription = if (file.isDirectory) {
-            "Pasta"
-        } else {
-            "Arquivo de áudio"
-        }
-    )
-
-    Text(
-        text = file.name,
-        modifier = Modifier
-            .padding(start = 16.dp)
-            .weight(1f),
-        style = MaterialTheme.typography.bodyLarge
-    )
 }
 
 
