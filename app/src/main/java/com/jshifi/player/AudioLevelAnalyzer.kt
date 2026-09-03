@@ -3,11 +3,10 @@ package com.jshifi.player
 import android.media.MediaCodec
 import android.media.MediaExtractor
 import android.media.MediaFormat
-import kotlinx.coroutines.Dispatchers
-import kotlinx.coroutines.withContext
 import java.io.File
+import kotlin.math.abs
 import kotlin.math.log10
-import kotlin.math.max
+import kotlin.math.sqrt
 
 data class AudioLevel(
 val peakDbFS: Float,
@@ -16,11 +15,11 @@ val rmsDbFS: Float
 
 object AudioLevelAnalyzer {
 
-private const val MAX_ANALYSIS_SECONDS = 30L
-private const val TIMEOUT_US = 10_000L
-
 /**
  * Localiza a primeira faixa de áudio do arquivo.
+ *
+ * Esta função somente consulta o arquivo.
+ * O áudio original não é alterado.
  */
 fun findAudioTrack(file: File): MediaFormat? {
     if (!file.exists() || !file.isFile) {
@@ -53,70 +52,70 @@ fun findAudioTrack(file: File): MediaFormat? {
 }
 
 /**
- * Analisa uma música de forma assíncrona.
+ * Analisa o nível de uma faixa de áudio.
  *
- * A análise usa o decoder nativo do Android e trabalha
- * somente com uma pequena parte inicial da música.
+ * O objetivo é obter uma estimativa segura de:
  *
- * Isso evita carregar a faixa inteira na memória.
- */
-suspend fun analyzeAsync(file: File): AudioLevel? =
-    withContext(Dispatchers.IO) {
-        analyzeInternal(file)
-    }
-
-/**
- * Mantemos analyze() para compatibilidade com código antigo.
+ * - Peak em dBFS
+ * - RMS em dBFS
  *
- * Não fazemos aqui uma chamada bloqueante ao decoder.
- * O código que estiver em coroutines deve preferir
- * analyzeAsync().
+ * A análise é somente leitura.
+ *
+ * Se determinado codec/formato não puder ser decodificado
+ * pelo MediaCodec do aparelho, retornamos null em vez de
+ * inventar valores.
  */
 fun analyze(file: File): AudioLevel? {
-    return null
-}
 
-private fun analyzeInternal(file: File): AudioLevel? {
     if (!file.exists() || !file.isFile) {
         return null
     }
 
     val extractor = MediaExtractor()
+
     var codec: MediaCodec? = null
 
-    try {
+    return try {
+
         extractor.setDataSource(file.absolutePath)
 
-        var audioTrack = -1
-        var format: MediaFormat? = null
+        var audioFormat: MediaFormat? = null
 
         for (i in 0 until extractor.trackCount) {
-            val candidate = extractor.getTrackFormat(i)
-            val mime = candidate.getString(MediaFormat.KEY_MIME)
+            val format = extractor.getTrackFormat(i)
+            val mime = format.getString(MediaFormat.KEY_MIME)
 
             if (mime != null && mime.startsWith("audio/")) {
-                audioTrack = i
-                format = candidate
+                audioFormat = format
+                extractor.selectTrack(i)
                 break
             }
         }
 
-        if (audioTrack < 0 || format == null) {
+        if (audioFormat == null) {
             return null
         }
 
-        extractor.selectTrack(audioTrack)
-
-        val mime = format.getString(MediaFormat.KEY_MIME)
+        val mime = audioFormat.getString(MediaFormat.KEY_MIME)
             ?: return null
 
         codec = try {
             MediaCodec.createDecoderByType(mime)
         } catch (_: Exception) {
+            null
+        }
+
+        if (codec == null) {
             return null
         }
 
-        codec.configure(format, null, null, 0)
+        codec.configure(
+            audioFormat,
+            null,
+            null,
+            0
+        )
+
         codec.start()
 
         val bufferInfo = MediaCodec.BufferInfo()
@@ -124,63 +123,70 @@ private fun analyzeInternal(file: File): AudioLevel? {
         var inputDone = false
         var outputDone = false
 
-        var totalSamples = 0L
-        var sumSquares = 0.0
         var peak = 0.0
+        var sumSquares = 0.0
+        var sampleCount = 0L
 
-        val durationUs =
-            if (format.containsKey(MediaFormat.KEY_DURATION)) {
-                format.getLong(MediaFormat.KEY_DURATION)
-            } else {
-                Long.MAX_VALUE
-            }
+        val startTimeUs = extractor.sampleTime
+        val maxAnalysisTimeUs = 15_000_000L
 
-        val maxTimeUs =
-            minOf(
-                durationUs,
-                MAX_ANALYSIS_SECONDS * 1_000_000L
-            )
+        while (!outputDone) {
 
-        while (!outputDone && totalSamples < 5_000_000L) {
-
+            /*
+             * Alimenta o decoder.
+             */
             if (!inputDone) {
-                val inputIndex =
-                    codec.dequeueInputBuffer(TIMEOUT_US)
+
+                val inputIndex = codec.dequeueInputBuffer(10_000)
 
                 if (inputIndex >= 0) {
-                    val inputBuffer =
-                        codec.getInputBuffer(inputIndex)
+
+                    val inputBuffer = codec.getInputBuffer(inputIndex)
 
                     if (inputBuffer == null) {
                         codec.queueInputBuffer(
                             inputIndex,
                             0,
                             0,
-                            0,
+                            0L,
                             MediaCodec.BUFFER_FLAG_END_OF_STREAM
                         )
                         inputDone = true
                     } else {
-                        val sampleSize =
-                            extractor.readSampleData(
-                                inputBuffer,
-                                0
-                            )
+
+                        inputBuffer.clear()
+
+                        val sampleSize = extractor.readSampleData(
+                            inputBuffer,
+                            0
+                        )
 
                         if (sampleSize < 0) {
+
                             codec.queueInputBuffer(
                                 inputIndex,
                                 0,
                                 0,
-                                0,
+                                0L,
                                 MediaCodec.BUFFER_FLAG_END_OF_STREAM
                             )
-                            inputDone = true
-                        } else {
-                            val sampleTime =
-                                extractor.sampleTime
 
-                            if (sampleTime >= maxTimeUs) {
+                            inputDone = true
+
+                        } else {
+
+                            val sampleTime = extractor.sampleTime
+
+                            /*
+                             * Limitamos a aproximadamente 15 segundos
+                             * para evitar análise excessivamente longa
+                             * de arquivos grandes.
+                             */
+                            if (
+                                startTimeUs >= 0 &&
+                                sampleTime >= startTimeUs + maxAnalysisTimeUs
+                            ) {
+
                                 codec.queueInputBuffer(
                                     inputIndex,
                                     0,
@@ -188,8 +194,11 @@ private fun analyzeInternal(file: File): AudioLevel? {
                                     sampleTime,
                                     MediaCodec.BUFFER_FLAG_END_OF_STREAM
                                 )
+
                                 inputDone = true
+
                             } else {
+
                                 codec.queueInputBuffer(
                                     inputIndex,
                                     0,
@@ -197,6 +206,7 @@ private fun analyzeInternal(file: File): AudioLevel? {
                                     sampleTime,
                                     0
                                 )
+
                                 extractor.advance()
                             }
                         }
@@ -204,80 +214,50 @@ private fun analyzeInternal(file: File): AudioLevel? {
                 }
             }
 
-            val outputIndex =
-                codec.dequeueOutputBuffer(
-                    bufferInfo,
-                    TIMEOUT_US
-                )
+            /*
+             * Obtém PCM decodificado.
+             */
+            val outputIndex = codec.dequeueOutputBuffer(
+                bufferInfo,
+                10_000
+            )
 
             when {
-                outputIndex >= 0 -> {
-                    val outputBuffer =
-                        codec.getOutputBuffer(outputIndex)
 
-                    if (outputBuffer != null &&
-                        bufferInfo.size > 0
-                    ) {
+                outputIndex >= 0 -> {
+
+                    val outputBuffer = codec.getOutputBuffer(outputIndex)
+
+                    if (outputBuffer != null && bufferInfo.size > 0) {
+
                         outputBuffer.position(bufferInfo.offset)
                         outputBuffer.limit(
                             bufferInfo.offset + bufferInfo.size
                         )
 
                         /*
-                         * A maioria dos decoders Android
-                         * entrega PCM 16-bit.
+                         * A maioria dos decoders Android fornece PCM
+                         * de 16 bits quando configurado dessa forma.
                          *
-                         * Se o formato for diferente,
-                         * ignoramos este bloco em vez de
-                         * interpretar os bytes incorretamente.
+                         * Fazemos uma leitura conservadora dos samples.
                          */
-                        val pcmEncoding =
-                            if (format.containsKey(
-                                    MediaFormat.KEY_PCM_ENCODING
-                                )
-                            ) {
-                                format.getInteger(
-                                    MediaFormat.KEY_PCM_ENCODING
-                                )
-                            } else {
-                                2
+                        while (outputBuffer.remaining() >= 2) {
+
+                            val low = outputBuffer.get().toInt() and 0xFF
+                            val high = outputBuffer.get().toInt()
+
+                            val sample =
+                                ((high shl 8) or low).toShort().toInt()
+
+                            val normalized =
+                                abs(sample.toDouble()) / 32768.0
+
+                            if (normalized > peak) {
+                                peak = normalized
                             }
 
-                        if (pcmEncoding == 2) {
-                            while (
-                                outputBuffer.remaining() >= 2
-                            ) {
-                                val low =
-                                    outputBuffer.get()
-                                        .toInt() and 0xFF
-
-                                val high =
-                                    outputBuffer.get()
-                                        .toInt()
-
-                                val sample =
-                                    (high shl 8) or low
-
-                                val normalized =
-                                    sample / 32768.0
-
-                                val absolute =
-                                    kotlin.math.abs(
-                                        normalized
-                                    )
-
-                                peak =
-                                    max(
-                                        peak,
-                                        absolute
-                                    )
-
-                                sumSquares +=
-                                    normalized *
-                                    normalized
-
-                                totalSamples++
-                            }
+                            sumSquares += normalized * normalized
+                            sampleCount++
                         }
                     }
 
@@ -296,51 +276,44 @@ private fun analyzeInternal(file: File): AudioLevel? {
 
                 outputIndex == MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
                     /*
-                     * O decoder pode informar o formato PCM
-                     * real somente depois de iniciar.
-                     *
-                     * Não precisamos interromper a análise.
+                     * O decoder mudou o formato de saída.
+                     * Não precisamos fazer nada aqui.
                      */
                 }
 
                 outputIndex == MediaCodec.INFO_TRY_AGAIN_LATER -> {
+                    /*
+                     * Nenhum buffer disponível neste momento.
+                     *
+                     * Se a entrada já terminou, encerramos para evitar
+                     * loop infinito em codecs problemáticos.
+                     */
                     if (inputDone) {
-                        break
+                        outputDone = true
                     }
                 }
             }
         }
 
-        if (totalSamples <= 0L) {
-            return null
-        }
+        if (sampleCount <= 0) {
+            null
+        } else {
 
-        val rms =
-            kotlin.math.sqrt(
-                sumSquares / totalSamples.toDouble()
+            val rms = sqrt(
+                sumSquares / sampleCount.toDouble()
             )
 
-        if (rms <= 0.0000001) {
-            return AudioLevel(
-                peakDbFS = -120f,
-                rmsDbFS = -120f
+            AudioLevel(
+                peakDbFS = amplitudeToDb(peak),
+                rmsDbFS = amplitudeToDb(rms)
             )
         }
-
-        val peakDb =
-            linearToDb(peak)
-
-        val rmsDb =
-            linearToDb(rms)
-
-        return AudioLevel(
-            peakDbFS = peakDb,
-            rmsDbFS = rmsDb
-        )
 
     } catch (_: Exception) {
-        return null
+        null
+
     } finally {
+
         try {
             codec?.stop()
         } catch (_: Exception) {
@@ -358,17 +331,22 @@ private fun analyzeInternal(file: File): AudioLevel? {
     }
 }
 
-private fun linearToDb(value: Double): Float {
-    if (value <= 0.0000001) {
+/**
+ * Converte amplitude linear para dBFS.
+ *
+ * - 1.0 = 0 dBFS
+ * - 0.5 ≈ -6 dBFS
+ * - 0.1 ≈ -20 dBFS
+ */
+private fun amplitudeToDb(amplitude: Double): Float {
+
+    if (amplitude <= 0.000001) {
         return -120f
     }
 
-    return (
-        20.0 * log10(value)
-    ).toFloat().coerceIn(
-        -120f,
-        0f
-    )
+    return (20.0 * log10(amplitude))
+        .toFloat()
+        .coerceIn(-120f, 0f)
 }
 
 
