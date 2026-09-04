@@ -1,3 +1,4 @@
+```kotlin
 package com.jshifi.player
 
 import androidx.compose.foundation.clickable
@@ -26,165 +27,151 @@ import androidx.compose.ui.Modifier
 import androidx.compose.ui.unit.dp
 import java.io.File
 
-private val audioExtensions = setOf(
-"mp3",
-"m4a",
-"aac",
-"flac",
-"wav",
-"ogg",
-"opus",
-"3gp",
-"amr"
-)
-
-private fun isAudioFile(file: File): Boolean {
-return file.isFile &&
-file.extension.lowercase() in audioExtensions
-}
-
 @Composable
 fun FileBrowserScreen(
-initialDirectory: File,
-onAudioSelected: (File) -> Unit = {}
+    initialDirectory: File,
+    onAudioSelected: (File) -> Unit = {}
 ) {
-var currentDirectory by remember {
-mutableStateOf(
-if (initialDirectory.exists() && initialDirectory.isDirectory) {
-initialDirectory
-} else {
-File("/")
-}
-)
-}
-
-val files = remember(currentDirectory) {
-    currentDirectory
-        .listFiles()
-        ?.filter {
-            it.isDirectory || isAudioFile(it)
-        }
-        ?.sortedWith(
-            compareBy<File> { !it.isDirectory }
-                .thenBy {
-                    it.name.lowercase()
-                }
-        )
-        ?: emptyList()
-}
-
-Column(
-    modifier = Modifier.fillMaxSize()
-) {
-
-    Row(
-        modifier = Modifier
-            .fillMaxWidth()
-            .padding(
-                horizontal = 8.dp,
-                vertical = 6.dp
-            ),
-        verticalAlignment = Alignment.CenterVertically
-    ) {
-
-        IconButton(
-            onClick = {
-                currentDirectory.parentFile?.let {
-                    currentDirectory = it
-                }
-            },
-            enabled = currentDirectory.parentFile != null
-        ) {
-            Icon(
-                imageVector = Icons.Default.ArrowBack,
-                contentDescription = "Voltar"
-            )
-        }
-
-        Text(
-            text = currentDirectory.absolutePath,
-            modifier = Modifier
-                .weight(1f)
-                .padding(start = 8.dp),
-            style = MaterialTheme.typography.titleMedium,
-            maxLines = 1
+    var currentDirectory by remember {
+        mutableStateOf(
+            if (
+                initialDirectory.exists() &&
+                initialDirectory.isDirectory
+            ) {
+                initialDirectory
+            } else {
+                File("/")
+            }
         )
     }
 
-    if (files.isEmpty()) {
+    val files = remember(currentDirectory) {
+        currentDirectory
+            .listFiles()
+            ?.filter {
+                it.isDirectory ||
+                    AudioFileBrowser.isAudioFile(it)
+            }
+            ?.sortedWith(
+                compareBy<File> { !it.isDirectory }
+                    .thenBy {
+                        it.name.lowercase()
+                    }
+            )
+            ?: emptyList()
+    }
 
-        Column(
+    Column(
+        modifier = Modifier.fillMaxSize()
+    ) {
+
+        Row(
             modifier = Modifier
-                .fillMaxSize()
-                .padding(24.dp),
-            horizontalAlignment = Alignment.CenterHorizontally,
-            verticalArrangement = Arrangement.Center
+                .fillMaxWidth()
+                .padding(
+                    horizontal = 8.dp,
+                    vertical = 6.dp
+                ),
+            verticalAlignment = Alignment.CenterVertically
         ) {
 
+            IconButton(
+                onClick = {
+                    currentDirectory.parentFile?.let {
+                        currentDirectory = it
+                    }
+                },
+                enabled = currentDirectory.parentFile != null
+            ) {
+                Icon(
+                    imageVector = Icons.Default.ArrowBack,
+                    contentDescription = "Voltar"
+                )
+            }
+
             Text(
-                text = "Pasta vazia",
-                style = MaterialTheme.typography.bodyLarge
+                text = currentDirectory.absolutePath,
+                modifier = Modifier
+                    .weight(1f)
+                    .padding(start = 8.dp),
+                style = MaterialTheme.typography.titleMedium,
+                maxLines = 1
             )
         }
 
-    } else {
+        if (files.isEmpty()) {
 
-        LazyColumn(
-            modifier = Modifier.fillMaxSize()
-        ) {
+            Column(
+                modifier = Modifier
+                    .fillMaxSize()
+                    .padding(24.dp),
+                horizontalAlignment = Alignment.CenterHorizontally,
+                verticalArrangement = Arrangement.Center
+            ) {
 
-            items(
-                items = files,
-                key = {
-                    it.absolutePath
-                }
-            ) { file ->
+                Text(
+                    text = "Pasta vazia",
+                    style = MaterialTheme.typography.bodyLarge
+                )
+            }
 
-                Row(
-                    modifier = Modifier
-                        .fillMaxWidth()
-                        .clickable {
+        } else {
 
-                            if (file.isDirectory) {
-                                currentDirectory = file
-                            } else {
-                                onAudioSelected(file)
+            LazyColumn(
+                modifier = Modifier.fillMaxSize()
+            ) {
+
+                items(
+                    items = files,
+                    key = {
+                        it.absolutePath
+                    }
+                ) { file ->
+
+                    Row(
+                        modifier = Modifier
+                            .fillMaxWidth()
+                            .clickable {
+
+                                if (file.isDirectory) {
+                                    currentDirectory = file
+                                } else {
+                                    onAudioSelected(file)
+                                }
                             }
-                        }
-                        .padding(
-                            horizontal = 16.dp,
-                            vertical = 14.dp
-                        ),
-                    verticalAlignment = Alignment.CenterVertically
-                ) {
+                            .padding(
+                                horizontal = 16.dp,
+                                vertical = 14.dp
+                            ),
+                        verticalAlignment = Alignment.CenterVertically
+                    ) {
 
-                    Text(
-                        text = if (file.isDirectory) {
-                            "📁"
-                        } else {
-                            "🎵"
-                        },
-                        modifier = Modifier.padding(end = 14.dp)
-                    )
-
-                    Text(
-                        text = file.name,
-                        modifier = Modifier.weight(1f),
-                        style = MaterialTheme.typography.bodyLarge
-                    )
-
-                    if (file.isDirectory) {
-                        Icon(
-                            imageVector =
-                                Icons.Default.KeyboardArrowRight,
-                            contentDescription = "Abrir pasta"
+                        Text(
+                            text = if (file.isDirectory) {
+                                "📁"
+                            } else {
+                                "🎵"
+                            },
+                            modifier = Modifier.padding(end = 14.dp)
                         )
+
+                        Text(
+                            text = file.name,
+                            modifier = Modifier.weight(1f),
+                            style = MaterialTheme.typography.bodyLarge
+                        )
+
+                        if (file.isDirectory) {
+                            Icon(
+                                imageVector =
+                                    Icons.Default.KeyboardArrowRight,
+                                contentDescription = "Abrir pasta"
+                            )
+                        }
                     }
                 }
             }
         }
     }
 }
-
-
-}
+```
