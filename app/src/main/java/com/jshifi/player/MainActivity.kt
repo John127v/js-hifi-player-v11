@@ -1,4 +1,4 @@
-package com.jshifi.player
+package com.jshifi.player 
 
 import android.Manifest
 import android.content.Context
