@@ -1,4 +1,3 @@
-```kotlin
 package com.jshifi.player
 
 import android.Manifest
@@ -2861,4 +2860,3 @@ fun BargraphSegmentedMode(
         }
     }
 }
-```
