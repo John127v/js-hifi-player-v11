@@ -17,12 +17,6 @@ data class AudioLevel(
 
 object AudioLevelAnalyzer {
 
-    /**
-     * Localiza a primeira faixa de áudio do arquivo.
-     *
-     * Esta função somente consulta o arquivo.
-     * O áudio original não é alterado.
-     */
     fun findAudioTrack(file: File): MediaFormat? {
 
         if (!file.exists() || !file.isFile) {
@@ -60,18 +54,6 @@ object AudioLevelAnalyzer {
         }
     }
 
-    /**
-     * Analisa o nível de uma faixa de áudio.
-     *
-     * Retorna:
-     *
-     * - Peak em dBFS
-     * - RMS em dBFS
-     *
-     * A análise é somente leitura.
-     *
-     * Não modifica o arquivo original.
-     */
     fun analyze(file: File): AudioLevel? {
 
         if (!file.exists() || !file.isFile) {
@@ -87,9 +69,6 @@ object AudioLevelAnalyzer {
 
             var audioFormat: MediaFormat? = null
 
-            /*
-             * Localiza a primeira faixa de áudio.
-             */
             for (i in 0 until extractor.trackCount) {
 
                 val format = extractor.getTrackFormat(i)
@@ -112,9 +91,6 @@ object AudioLevelAnalyzer {
                 .getString(MediaFormat.KEY_MIME)
                 ?: return null
 
-            /*
-             * Cria o decoder apropriado para o codec encontrado.
-             */
             codec = try {
                 MediaCodec.createDecoderByType(mime)
             } catch (_: Exception) {
@@ -144,11 +120,19 @@ object AudioLevelAnalyzer {
             var sampleCount = 0L
 
             /*
-             * Analisa aproximadamente os primeiros 15 segundos.
-             *
-             * Isso evita uma análise muito demorada em arquivos grandes.
+             * Analisa no máximo os primeiros 15 segundos.
              */
             val maxAnalysisTimeUs = 15_000_000L
+
+            /*
+             * Limite de segurança para impedir que um decoder
+             * problemático fique preso indefinidamente.
+             *
+             * O limite é contado em ciclos do processamento,
+             * não altera o áudio analisado.
+             */
+            val maxProcessingCycles = 5000
+            var processingCycles = 0
 
             val firstSampleTimeUs = extractor.sampleTime
                 .takeIf { it >= 0L }
@@ -156,11 +140,15 @@ object AudioLevelAnalyzer {
 
             while (!outputDone) {
 
+                processingCycles++
+
                 /*
-                 * ---------------------------------------------------------
-                 * ALIMENTAÇÃO DO DECODER
-                 * ---------------------------------------------------------
+                 * Proteção contra loop infinito do MediaCodec.
                  */
+                if (processingCycles > maxProcessingCycles) {
+                    break
+                }
+
                 if (!inputDone) {
 
                     val inputIndex = codec.dequeueInputBuffer(10_000)
@@ -209,9 +197,6 @@ object AudioLevelAnalyzer {
                                 val sampleTime =
                                     extractor.sampleTime
 
-                                /*
-                                 * Limite aproximado de análise.
-                                 */
                                 if (
                                     sampleTime >=
                                     firstSampleTimeUs +
@@ -245,11 +230,6 @@ object AudioLevelAnalyzer {
                     }
                 }
 
-                /*
-                 * ---------------------------------------------------------
-                 * RECEBE PCM DO DECODER
-                 * ---------------------------------------------------------
-                 */
                 val outputIndex = codec.dequeueOutputBuffer(
                     bufferInfo,
                     10_000
@@ -303,31 +283,24 @@ object AudioLevelAnalyzer {
 
                     outputIndex ==
                         MediaCodec.INFO_OUTPUT_FORMAT_CHANGED -> {
-
-                        /*
-                         * O formato de saída mudou.
-                         *
-                         * O MediaCodec continua sendo utilizado normalmente.
-                         */
+                        // O formato de saída será tratado pelo decoder.
                     }
 
                     outputIndex ==
                         MediaCodec.INFO_TRY_AGAIN_LATER -> {
-
                         /*
-                         * Não encerramos imediatamente quando inputDone
-                         * estiver ativo.
+                         * Não encerramos a análise imediatamente.
                          *
-                         * O decoder ainda pode possuir dados pendentes.
-                         *
-                         * O próximo ciclo tentará novamente.
+                         * O decoder pode simplesmente ainda não ter
+                         * produzido um bloco de áudio.
                          */
                     }
                 }
             }
 
             /*
-             * Não foi possível obter nenhum sample.
+             * Se não conseguimos obter nenhuma amostra PCM,
+             * a análise não é considerada válida.
              */
             if (sampleCount <= 0L) {
                 return null
@@ -366,13 +339,6 @@ object AudioLevelAnalyzer {
         }
     }
 
-    /**
-     * Processa o PCM retornado pelo decoder.
-     *
-     * O decoder Android normalmente fornece PCM 16-bit,
-     * mas verificamos o formato de saída antes de interpretar
-     * os dados.
-     */
     private fun processPcmBuffer(
         outputBuffer: ByteBuffer,
         bufferInfo: MediaCodec.BufferInfo,
@@ -389,17 +355,8 @@ object AudioLevelAnalyzer {
 
         buffer.limit(endPosition)
 
-        /*
-         * A saída PCM do decoder é normalmente little-endian.
-         */
         buffer.order(ByteOrder.LITTLE_ENDIAN)
 
-        /*
-         * PCM 16-bit:
-         *
-         * 32768 = amplitude máxima negativa
-         * 32767 = amplitude máxima positiva
-         */
         while (buffer.remaining() >= 2) {
 
             val sample = buffer.short.toInt()
@@ -411,15 +368,6 @@ object AudioLevelAnalyzer {
         }
     }
 
-    /**
-     * Converte amplitude linear para dBFS.
-     *
-     * Exemplos:
-     *
-     * 1.0  = 0 dBFS
-     * 0.5  ≈ -6 dBFS
-     * 0.1  ≈ -20 dBFS
-     */
     private fun amplitudeToDb(
         amplitude: Double
     ): Float {
