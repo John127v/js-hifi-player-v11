@@ -6,72 +6,21 @@ import kotlin.math.min
 /**
  * Controle automático de ganho do JS HiFi Player.
  *
- * O objetivo é corrigir somente músicas com nível
- * significativamente baixo.
+ * Corrige somente músicas com nível significativamente baixo.
  *
- * Não reduz o volume de nenhuma música.
+ * Não reduz o volume de músicas normais.
  * Não altera equalização ou dinâmica.
- *
- * O ganho é calculado usando:
- *
- * - RMS: referência principal do nível da música.
- * - Peak: limite de segurança contra clipping.
  */
-class AutoGainController {
-
-    companion object {
-
-        /**
-         * Nunca aplicamos ganho negativo.
-         */
-        private const val MIN_GAIN_DB = 0f
-
-        /**
-         * Limite máximo do ganho automático.
-         *
-         * Evita amplificação exagerada em arquivos
-         * extremamente baixos.
-         */
-        private const val MAX_GAIN_DB = 10f
-
-        /**
-         * Nível a partir do qual a música é considerada
-         * realmente baixa.
-         *
-         * Acima deste valor não fazemos correção.
-         */
-        private const val QUIET_LEVEL_DB = -18f
-
-        /**
-         * Nível alvo para as músicas que precisam
-         * de correção.
-         *
-         * Não tentamos deixar todas as músicas nesse
-         * nível. Ele serve apenas como referência para
-         * calcular o ganho necessário.
-         */
-        private const val TARGET_RMS_DB = -14f
-
-        /**
-         * Mantém aproximadamente 1 dB de margem
-         * abaixo de 0 dBFS.
-         */
-        private const val PEAK_HEADROOM_DB = -1f
-    }
+class AutoGainController(
+    private val settings: AudioSettings = AudioSettings()
+) {
 
     /**
      * Calcula o ganho recomendado em dB.
      *
-     * Músicas acima de -18 dB RMS não recebem ganho.
-     *
-     * Exemplo:
-     *
-     * RMS = -20 dBFS
-     * alvo = -14 dBFS
-     * ganho solicitado = +6 dB
-     *
-     * O Peak é usado para limitar o ganho caso
-     * exista risco de clipping.
+     * O RMS determina quanto a música está baixa.
+     * O Peak determina quanto podemos aumentar
+     * sem ultrapassar a margem de segurança.
      */
     fun calculateGain(level: AudioLevel): Float {
 
@@ -82,83 +31,87 @@ class AutoGainController {
          * Proteção contra valores inválidos.
          */
         if (!rms.isFinite() || !peak.isFinite()) {
-            return MIN_GAIN_DB
+            return 0f
         }
 
         /*
          * Silêncio ou análise inválida.
          */
         if (rms <= -120f || peak <= -120f) {
-            return MIN_GAIN_DB
+            return 0f
+        }
+
+        /*
+         * Se o Auto Gain estiver desligado,
+         * não fazemos nenhuma correção.
+         */
+        if (!settings.autoGainEnabled) {
+            return 0f
         }
 
         /*
          * Música com nível normal:
-         * não fazemos absolutamente nenhuma alteração.
+         * não alteramos absolutamente nada.
          */
-        if (rms >= QUIET_LEVEL_DB) {
-            return MIN_GAIN_DB
+        if (rms >= settings.quietLevelDb) {
+            return 0f
         }
 
         /*
          * Calcula somente o ganho necessário
-         * para aproximar o RMS do alvo.
+         * para aproximar a música do RMS alvo.
          */
         val requestedGain =
-            TARGET_RMS_DB - rms
+            settings.targetRmsDb - rms
 
         /*
-         * Nunca permitimos ganho negativo.
+         * Nunca aplicamos ganho negativo.
          */
         var gain = max(
-            MIN_GAIN_DB,
+            0f,
             requestedGain
         )
 
         /*
-         * Limite máximo do Auto Gain.
+         * Respeita o limite configurado.
          */
         gain = min(
-            MAX_GAIN_DB,
+            settings.maxAutoGainDb,
             gain
         )
 
         /*
-         * Verifica quanto ganho o pico permite.
+         * Calcula o ganho máximo permitido pelo Peak.
          *
          * Exemplo:
          *
          * Peak = -4 dBFS
-         * Headroom = -1 dBFS
+         * Margem = 1 dB
          *
-         * Ganho máximo seguro = +3 dB
+         * Ganho máximo seguro = +3 dB.
          */
-        val availableHeadroom =
-            PEAK_HEADROOM_DB - peak
+        val peakLimitDb =
+            -settings.safetyMarginDb - peak
 
         /*
-         * Se o ganho solicitado ultrapassar
-         * o headroom disponível, usamos somente
-         * o ganho seguro.
+         * Nunca permitimos que o ganho ultrapasse
+         * o headroom disponível.
          */
-        if (availableHeadroom < gain) {
-
+        if (peakLimitDb < gain) {
             gain = max(
-                MIN_GAIN_DB,
-                availableHeadroom
+                0f,
+                peakLimitDb
             )
         }
 
         return gain.coerceIn(
-            MIN_GAIN_DB,
-            MAX_GAIN_DB
+            0f,
+            settings.maxAutoGainDb
         )
     }
 
     /**
      * Converte dB para fator linear.
-     *
-     * Exemplos:
      *
      * 0 dB  = 1.0
      * +6 dB ≈ 1.995
@@ -173,10 +126,9 @@ class AutoGainController {
     }
 
     /**
-     * Suaviza a mudança de ganho.
+     * Suaviza uma mudança de ganho.
      *
-     * Evita mudanças bruscas quando o ganho
-     * automático for aplicado durante a reprodução.
+     * Evita mudanças bruscas durante a reprodução.
      */
     fun smoothGain(
         currentDb: Float,
@@ -193,8 +145,8 @@ class AutoGainController {
     }
 
     /**
-     * Retorna true somente quando a música
-     * está abaixo do nível considerado normal.
+     * Informa se a música possui nível abaixo
+     * do limite configurado para correção.
      */
     fun isQuietTrack(level: AudioLevel): Boolean {
 
@@ -202,6 +154,7 @@ class AutoGainController {
             return false
         }
 
-        return level.rmsDbFS < QUIET_LEVEL_DB
+        return settings.autoGainEnabled &&
+            level.rmsDbFS < settings.quietLevelDb
     }
 }
