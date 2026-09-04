@@ -1,4 +1,3 @@
-```kotlin
 package com.jshifi.player
 
 import androidx.compose.foundation.clickable
@@ -174,4 +173,3 @@ fun FileBrowserScreen(
         }
     }
 }
-```
