@@ -1,37 +1,43 @@
 package com.jshifi.player
 
 /**
- * Configurações centrais do processamento de áudio.
+ * Configurações centrais do ganho automático do JS HiFi Player.
  *
- * O ganho é aplicado de forma conservadora:
+ * O Auto Gain atua somente sobre músicas com nível
+ * significativamente baixo.
  *
- * - músicas muito baixas recebem mais ganho;
- * - músicas normais recebem pouco ou nenhum ganho;
- * - existe um limite máximo para evitar amplificação exagerada.
+ * Não reduz o volume de músicas que já possuem nível normal.
  */
 data class AudioSettings(
+
+    /**
+     * Ativa ou desativa o ganho automático.
+     */
     val autoGainEnabled: Boolean = true,
 
     /**
-     * Nível alvo aproximado.
+     * Nível RMS abaixo do qual a música será considerada baixa.
      *
-     * Valores mais altos deixam o áudio mais forte.
-     * Mantemos margem de segurança para reduzir o risco de clipping.
+     * Músicas com RMS igual ou acima deste valor
+     * não recebem correção automática.
      */
-    val targetGainDb: Float = 6f,
+    val quietLevelDb: Float = -18f,
 
     /**
-     * Ganho máximo automático.
-     *
-     * Não permitimos que uma música extremamente baixa
-     * receba uma amplificação ilimitada.
+     * Nível RMS utilizado como referência para calcular
+     * a quantidade de ganho necessária.
+     */
+    val targetRmsDb: Float = -14f,
+
+    /**
+     * Limite máximo de ganho automático.
      */
     val maxAutoGainDb: Float = 10f,
 
     /**
-     * Margem de segurança.
+     * Margem de segurança abaixo de 0 dBFS.
      *
-     * Evita trabalhar constantemente no limite digital.
+     * Mantém espaço para evitar clipping.
      */
-    val safetyMarginDb: Float = 1.5f
+    val safetyMarginDb: Float = 1f
 )
